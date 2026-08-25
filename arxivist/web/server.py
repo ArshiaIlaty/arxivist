@@ -90,6 +90,12 @@ def create_app(config_path: Optional[Path] = None, workdir: Optional[Path] = Non
     def index():
         return (static_dir / "index.html").read_text(encoding="utf-8")
 
+    @app.get("/favicon.ico")
+    def favicon():
+        # Browsers auto-request this; we don't ship an icon, so answer cleanly
+        # instead of logging a 404 on every page load.
+        return Response(status_code=204)
+
     @app.get("/health")
     def health():
         cfg = load_config(base, config_path)

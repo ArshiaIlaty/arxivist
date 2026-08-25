@@ -4,3 +4,10 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+
+# Local config may name account-specific models/regions — keep it out of git.
+config.yaml
+*.local.yaml
+# Never commit credentials.
+.env
+.aws/
