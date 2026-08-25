@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "arxivist"
+version = "0.1.0"
+description = "Identify research-paper PDFs, rename them to '<year> - <title>', and file them into topic folders."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "arshia" }]
+dependencies = [
+    "typer>=0.12",
+    "rich>=13.0",
+    "pypdf>=4.0",
+    "requests>=2.28",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+# LLM-powered adaptive topic classification (Anthropic API or Amazon Bedrock).
+# Optional: without it, arxivist falls back to a keyword classifier and stays offline.
+llm = ["anthropic>=0.40"]
+# Web UI: upload PDFs, watch progress, download the organized bundle.
+web = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "python-multipart>=0.0.9"]
+# Everything.
+all = ["anthropic>=0.40", "fastapi>=0.110", "uvicorn[standard]>=0.29", "python-multipart>=0.0.9"]
+
+[project.scripts]
+arxivist = "arxivist.cli:app"
+
+[tool.setuptools.packages.find]
+include = ["arxivist*"]
+
+[tool.setuptools.package-data]
+arxivist = ["web/static/*"]

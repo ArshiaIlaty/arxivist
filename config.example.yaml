@@ -1,0 +1,53 @@
+# arxivist configuration — copy to ~/.config/arxivist/config.yaml (or pass --config).
+# Every field is optional; the values shown are the defaults.
+
+# LLM used for adaptive topic classification. Set use_llm: false to stay fully offline.
+use_llm: true
+
+# Which LLM backend to use: "anthropic" (first-party API key) or "bedrock".
+provider: anthropic
+
+# Anthropic first-party model (provider: anthropic). Credentials come from
+# ANTHROPIC_API_KEY or an `ant auth login` profile.
+model: claude-opus-5
+
+# Amazon Bedrock (provider: bedrock). Credentials use the standard AWS chain
+# (env vars, ~/.aws/credentials, or an IAM role). Set bedrock_model to a model id
+# or cross-region inference profile you have enabled in your account, e.g.
+#   bedrock_model: us.anthropic.claude-opus-4-5-20251101-v1:0
+# aws_region defaults via the AWS chain (AnthropicBedrock falls back to us-east-1).
+# bedrock_model:
+# aws_region: us-west-2
+
+# Overridable by env vars: ARXIVIST_PROVIDER, ARXIVIST_MODEL, ARXIVIST_BEDROCK_MODEL, AWS_REGION.
+
+# Query Crossref (by DOI) and arXiv to get accurate titles/years. No API key needed.
+use_online: true
+
+# Minimum "is this a paper?" score (0..1) before a PDF is filed at all.
+paper_threshold: 0.5
+
+# If the topic classifier is less confident than this, the paper goes to
+# _NeedsReview/ instead of a topic folder, so you can place it by hand.
+topic_confidence_floor: 0.35
+
+# Optional seed taxonomy. arxivist grows this automatically as it files papers,
+# but listing your known subtopics here (a) seeds an empty library and (b) gives
+# the offline keyword fallback something to match on. Keys are folder names;
+# values are keywords for the offline classifier.
+topics:
+  Synthetic Data Generation:
+    - synthetic data
+    - generative model
+    - gan
+    - data augmentation
+  Survival Synthetic Data Generation:
+    - synthetic survival
+    - time-to-event synthesis
+    - synthetic time-to-event
+  Survival Analysis:
+    - survival analysis
+    - time-to-event
+    - hazard
+    - kaplan-meier
+    - cox proportional
