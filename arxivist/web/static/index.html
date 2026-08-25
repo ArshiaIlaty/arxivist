@@ -19,13 +19,13 @@
   h1 .arx { color: var(--accent); }
   header .sub { color: var(--muted); font-size: 13px; }
   #status { margin-left: auto; font-size: 12px; color: var(--muted); }
-  main { padding: 24px 28px; max-width: 1100px; margin: 0 auto; }
+  main { padding: 24px 28px; max-width: 1150px; margin: 0 auto; }
   #drop { border: 1.5px dashed var(--line); border-radius: 12px; padding: 40px;
           text-align: center; color: var(--muted); background: var(--panel);
           transition: border-color .15s, background .15s; cursor: pointer; }
   #drop.hover { border-color: var(--accent); background: #1b1f28; color: var(--fg); }
   #drop strong { color: var(--fg); }
-  .btnrow { margin-top: 16px; display: flex; gap: 12px; align-items: center; }
+  .btnrow { margin-top: 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
   button { background: var(--accent); color: #0b1220; border: 0; border-radius: 8px;
            padding: 9px 16px; font-weight: 600; cursor: pointer; font-size: 14px; }
   button.ghost { background: transparent; color: var(--fg); border: 1px solid var(--line); }
@@ -39,18 +39,22 @@
            vertical-align: top; }
   th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase;
        letter-spacing: .4px; }
-  td.src { color: var(--muted); word-break: break-word; max-width: 260px; }
-  td.dest { word-break: break-word; }
+  td.src { color: var(--muted); word-break: break-word; max-width: 240px; }
+  td.title { word-break: break-word; }
   .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px;
           font-weight: 700; text-transform: lowercase; }
   .planned { background: rgba(78,201,138,.15); color: var(--green); }
   .collision { background: rgba(230,193,90,.15); color: var(--yellow); }
-  .needs-review, .low { background: rgba(230,193,90,.15); color: var(--yellow); }
+  .needs-review { background: rgba(230,193,90,.15); color: var(--yellow); }
   .not-paper { background: rgba(139,147,167,.15); color: var(--dim); }
   .error { background: rgba(224,115,109,.18); color: var(--red); }
-  .topic { color: var(--accent); }
   .note { color: var(--muted); font-size: 12px; }
   .src-tag { color: var(--dim); font-size: 11px; }
+  input.topic { width: 100%; min-width: 150px; background: #0f131b; color: var(--fg);
+                border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px;
+                font-size: 13px; }
+  input.topic:focus { outline: none; border-color: var(--accent); }
+  input.topic::placeholder { color: var(--dim); }
   footer { color: var(--dim); font-size: 12px; padding: 16px 28px; }
   a { color: var(--accent); }
 </style>
@@ -65,43 +69,47 @@
 <main>
   <div id="drop">
     <p><strong>Drop PDFs here</strong> or click to choose files.</p>
-    <p class="note">They upload to the server, get analyzed, and come back organized into topic folders.</p>
+    <p class="note">They upload to the server and get analyzed. Review the proposed topics, edit any you like, then file &amp; download.</p>
     <input id="picker" type="file" accept="application/pdf,.pdf" multiple hidden />
   </div>
 
   <div class="btnrow">
-    <button id="go" disabled>Organize</button>
-    <button id="download" class="ghost" disabled>Download organized .zip</button>
+    <button id="go" disabled>Analyze</button>
+    <button id="apply" class="ghost" disabled>File &amp; download .zip</button>
     <span id="picked" class="note"></span>
   </div>
 
   <div id="bar"><div></div></div>
   <div id="summary"></div>
 
+  <datalist id="topics"></datalist>
   <table id="tbl" hidden>
     <thead>
-      <tr><th>Status</th><th>Source</th><th>Year</th><th>Title / note</th><th>→ Filed as</th></tr>
+      <tr><th>Status</th><th>Source</th><th>Year</th><th>Title / note</th><th style="min-width:180px">Topic (editable)</th></tr>
     </thead>
     <tbody></tbody>
   </table>
 </main>
 
-<footer>Dry-run-safe: your originals are never touched here — only copies you upload are organized into the downloadable bundle.</footer>
+<footer>Your originals on your machine are never touched — only the copies you upload are organized into the downloadable bundle. Leave a topic blank to skip filing that file.</footer>
 
 <script>
 const picker = document.getElementById('picker');
 const drop = document.getElementById('drop');
 const go = document.getElementById('go');
-const dl = document.getElementById('download');
+const applyBtn = document.getElementById('apply');
 const picked = document.getElementById('picked');
 const bar = document.getElementById('bar');
 const barFill = bar.firstElementChild;
 const summary = document.getElementById('summary');
 const tbl = document.getElementById('tbl');
 const tbody = tbl.querySelector('tbody');
+const topicList = document.getElementById('topics');
 let files = [];
+let sid = null;
+const rows = [];            // {source, input} for gathering overrides
+const knownTopics = new Set();
 
-// Health badge.
 fetch('health').then(r => r.json()).then(h => {
   const llm = h.use_llm ? `${h.provider}:${h.model}` : 'LLM off';
   document.getElementById('status').textContent =
@@ -126,14 +134,14 @@ function setFiles(list) {
 
 go.addEventListener('click', async () => {
   if (!files.length) return;
-  go.disabled = true; dl.disabled = true;
-  tbody.innerHTML = ''; tbl.hidden = true;
+  go.disabled = true; applyBtn.disabled = true;
+  tbody.innerHTML = ''; rows.length = 0; knownTopics.clear(); topicList.innerHTML = '';
+  tbl.hidden = true;
   bar.style.display = 'block'; barFill.style.width = '0%';
   summary.textContent = 'Uploading…';
 
   const fd = new FormData();
   files.forEach(f => fd.append('files', f, f.name));
-  let sid;
   try {
     const res = await fetch('api/sessions', { method: 'POST', body: fd });
     if (!res.ok) throw new Error(await res.text());
@@ -153,42 +161,84 @@ go.addEventListener('click', async () => {
     else if (d.type === 'done') {
       es.close();
       barFill.style.width = '100%';
-      summary.textContent = `Done — ${d.filed} filed, ${d.not_paper} not papers, ${d.total} total.`;
-      dl.disabled = false;
-      dl.onclick = () => window.location = d.download;
+      (d.known_topics || []).forEach(addTopicOption);
+      summary.textContent = `Analyzed ${d.total} file(s): ${d.candidates} paper(s), ${d.not_paper} not papers. `
+        + `Edit topics below, then file & download.`;
+      applyBtn.disabled = d.candidates === 0;
       go.disabled = false;
     } else if (d.type === 'error') {
       es.close(); summary.textContent = 'Error: ' + d.message; go.disabled = false;
     }
   };
   es.onerror = () => { es.close(); go.disabled = false;
-    if (!summary.textContent.startsWith('Done')) summary.textContent += ' (stream ended)'; };
+    if (!/^Analyzed/.test(summary.textContent)) summary.textContent += ' (stream ended)'; };
 });
 
+applyBtn.addEventListener('click', async () => {
+  if (!sid) return;
+  applyBtn.disabled = true; go.disabled = true;
+  summary.textContent = 'Filing…';
+  const overrides = {};
+  rows.forEach(r => { overrides[r.source] = r.input ? r.input.value.trim() : ''; });
+  try {
+    const res = await fetch(`api/sessions/${sid}/apply`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ overrides }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const out = await res.json();
+    summary.textContent = `Filed ${out.filed} file(s). Downloading…`;
+    window.location = out.download;
+    applyBtn.disabled = false; go.disabled = false;
+  } catch (e) {
+    summary.textContent = 'Filing failed: ' + e.message;
+    applyBtn.disabled = false; go.disabled = false;
+  }
+});
+
+function addTopicOption(t) {
+  if (!t || knownTopics.has(t)) return;
+  knownTopics.add(t);
+  const opt = document.createElement('option');
+  opt.value = t; topicList.appendChild(opt);
+}
+
 function addRow(d) {
-  const tr = document.createElement('tr');
-  const cls = d.status === 'planned' ? 'planned'
-    : d.status === 'collision' ? 'collision'
-    : d.status === 'not-paper' ? 'not-paper'
+  const cls = d.status === 'not-paper' ? 'not-paper'
     : d.status === 'error' ? 'error'
-    : (d.dest && d.dest.startsWith('_NeedsReview')) ? 'needs-review' : 'planned';
+    : d.status === 'needs-review' ? 'needs-review'
+    : d.status === 'collision' ? 'collision' : 'planned';
   const src = `${escapeHtml(d.source)}${d.meta_source && d.meta_source !== 'none'
     ? ` <span class="src-tag">(${d.meta_source})</span>` : ''}`;
-  const mid = d.status === 'not-paper' || d.status === 'error'
+  const title = (d.status === 'not-paper' || d.status === 'error')
     ? `<span class="note">${escapeHtml(d.note || d.status)}</span>`
     : escapeHtml(d.title || '—');
-  const dest = d.dest ? `<span class="topic">${escapeHtml(dirOf(d.dest))}</span>${escapeHtml(baseOf(d.dest))}`
-    : '<span class="note">left in place</span>';
+
+  const tr = document.createElement('tr');
   tr.innerHTML =
     `<td><span class="pill ${cls}">${d.status}</span></td>` +
     `<td class="src">${src}</td>` +
     `<td>${d.year || ''}</td>` +
-    `<td>${mid}</td>` +
-    `<td class="dest">${dest}</td>`;
+    `<td class="title">${title}</td>` +
+    `<td class="topiccell"></td>`;
+
+  let input = null;
+  if (d.status !== 'error') {
+    input = document.createElement('input');
+    input.className = 'topic';
+    input.setAttribute('list', 'topics');
+    if (d.status === 'not-paper') {
+      input.placeholder = 'not a paper — type a topic to file anyway';
+    } else {
+      input.value = d.topic || d.suggested_topic || '';
+      addTopicOption(input.value);
+    }
+    tr.querySelector('.topiccell').appendChild(input);
+  }
   tbody.appendChild(tr);
+  rows.push({ source: d.source, input });
 }
-function dirOf(p){ const i = p.lastIndexOf('/'); return i<0 ? '' : p.slice(0,i+1); }
-function baseOf(p){ const i = p.lastIndexOf('/'); return i<0 ? p : p.slice(i+1); }
+
 function escapeHtml(s){ return (s==null?'':String(s)).replace(/[&<>"']/g, c =>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 </script>

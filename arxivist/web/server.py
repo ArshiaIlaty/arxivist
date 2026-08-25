@@ -6,10 +6,10 @@ per-session workspace on the server, streams progress back over SSE, and hands
 you a zip mirroring the intended library layout to drop into your real library.
 """
 
-import datetime
 import io
 import json
 import re
+import shutil
 import tempfile
 import uuid
 import zipfile
@@ -17,13 +17,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
 
-from ..config import STATE_DIR, load_config
+from ..config import NEEDS_REVIEW, STATE_DIR, load_config
 from ..discover import find_pdfs
 from ..models import PlannedMove
-from ..organize import apply_moves, iter_plans
+from ..naming import sanitize
+from ..organize import dest_for_topic, iter_plans
 
 _SAFE = re.compile(r"[^A-Za-z0-9._ -]")
 
@@ -69,6 +70,7 @@ def _plan_to_dict(plan: PlannedMove, dest_root: Path) -> dict:
         "title": plan.meta.title,
         "year": plan.meta.year,
         "topic": plan.topic,
+        "suggested_topic": plan.suggested_topic,
         "meta_source": plan.meta.source,
         "dest": dest_rel,
         "note": plan.note,
@@ -137,6 +139,8 @@ def create_app(config_path: Optional[Path] = None, workdir: Optional[Path] = Non
                         "use_online": cfg.use_online})
             plans: List[PlannedMove] = []
             try:
+                # Analysis only — no files are moved here. The user reviews/edits
+                # topics, then POSTs /apply to file them.
                 for i, plan in enumerate(iter_plans(pdfs, cfg), start=1):
                     plans.append(plan)
                     payload = _plan_to_dict(plan, sess.organized)
@@ -147,21 +151,56 @@ def create_app(config_path: Optional[Path] = None, workdir: Optional[Path] = Non
                 return
 
             sess.plans = plans
-            run_id = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-            try:
-                apply_moves(plans, cfg, run_id)
-            except Exception as exc:  # noqa: BLE001
-                yield _sse({"type": "error", "message": f"apply failed: {exc}"})
-                return
-            sess.done = True
-
-            filed = sum(1 for p in plans if p.dest is not None and p.status not in {"not-paper", "error"})
+            candidates = sum(1 for p in plans if p.status != "not-paper" and p.status != "error")
             not_paper = sum(1 for p in plans if p.status == "not-paper")
-            yield _sse({"type": "done", "filed": filed, "not_paper": not_paper,
-                        "total": total, "download": f"api/sessions/{sid}/download"})
+            known = sorted(set(cfg.topics) | {p.topic for p in plans if p.topic}
+                           | {p.suggested_topic for p in plans if p.suggested_topic})
+            yield _sse({"type": "done", "candidates": candidates, "not_paper": not_paper,
+                        "total": total, "known_topics": known})
 
         return StreamingResponse(gen(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    @app.post("/api/sessions/{sid}/apply")
+    def apply(sid: str, payload: dict = Body(default={})):
+        """File papers into topic folders, honoring per-file topic overrides.
+
+        Copies (not moves) from the upload area so the user can re-apply with
+        different topics. `overrides` maps source filename -> topic; an empty or
+        missing topic means "don't file this one".
+        """
+        sess = sessions.get(sid)
+        if sess is None:
+            raise HTTPException(status_code=404, detail="Unknown session.")
+        if not sess.plans:
+            raise HTTPException(status_code=409, detail="Analyze the files first.")
+
+        overrides = payload.get("overrides", {}) or {}
+        cfg = load_config(sess.organized, config_path)
+
+        # Rebuild the organized tree from scratch so re-apply is idempotent.
+        if sess.organized.exists():
+            shutil.rmtree(sess.organized)
+        sess.organized.mkdir(parents=True, exist_ok=True)
+
+        filed = 0
+        for plan in sess.plans:
+            if plan.status == "error" or not plan.src.exists():
+                continue
+            name = plan.src.name
+            if name in overrides:
+                topic = sanitize(str(overrides[name] or "")).strip()
+            else:  # untouched row: fall back to the planned decision
+                topic = plan.topic or (NEEDS_REVIEW if plan.suggested_topic else "")
+            if not topic:
+                continue  # user chose not to file this one
+            dest = dest_for_topic(cfg, plan.meta, plan.src.stem, topic)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(str(plan.src), str(dest))
+            filed += 1
+
+        sess.done = True
+        return {"filed": filed, "download": f"api/sessions/{sid}/download"}
 
     @app.get("/api/sessions/{sid}/download")
     def download(sid: str):

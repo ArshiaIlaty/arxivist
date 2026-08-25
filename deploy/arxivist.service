@@ -1,0 +1,49 @@
+# systemd unit for the arxivist web UI.
+#
+# Install (as root):
+#   1. Install arxivist into a venv, e.g.:
+#        python3 -m venv /opt/arxivist/venv
+#        /opt/arxivist/venv/bin/pip install "arxivist[all] @ git+https://github.com/ArshiaIlaty/arxivist"
+#      (or clone the repo to /opt/arxivist/src and `pip install -e "/opt/arxivist/src[all]"`)
+#   2. Put your settings in /etc/arxivist/config.yaml and secrets in
+#      /etc/arxivist/arxivist.env  (chmod 600), e.g.:
+#        ANTHROPIC_API_KEY=sk-...
+#        # or, for Bedrock:
+#        # ARXIVIST_PROVIDER=bedrock
+#        # ARXIVIST_BEDROCK_MODEL=us.anthropic.claude-opus-4-5-20251101-v1:0
+#        # AWS_REGION=us-west-2
+#        # AWS_ACCESS_KEY_ID=... / AWS_SECRET_ACCESS_KEY=...   (or use an IAM role)
+#   3. cp deploy/arxivist.service /etc/systemd/system/arxivist.service
+#      (edit ExecStart path if your venv differs)
+#   4. systemctl daemon-reload && systemctl enable --now arxivist
+#
+# Watch logs:  journalctl -u arxivist -f
+
+[Unit]
+Description=arxivist web UI (research-paper PDF organizer)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# A dedicated unprivileged user is recommended: `useradd -r -s /usr/sbin/nologin arxivist`
+User=arxivist
+Group=arxivist
+EnvironmentFile=-/etc/arxivist/arxivist.env
+ExecStart=/opt/arxivist/venv/bin/arxivist serve \
+    --host 0.0.0.0 --port 8000 \
+    --config /etc/arxivist/config.yaml \
+    --workdir /var/lib/arxivist
+Restart=on-failure
+RestartSec=3
+
+# Hardening.
+StateDirectory=arxivist
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/arxivist
+
+[Install]
+WantedBy=multi-user.target

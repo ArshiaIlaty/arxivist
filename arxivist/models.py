@@ -42,8 +42,11 @@ class PlannedMove:
 
     src: Path
     dest: Optional[Path]  # None when we decline to move (not a paper / needs review)
-    topic: Optional[str]
+    topic: Optional[str]  # the folder we'd file into (None when routed to _NeedsReview)
     meta: PaperMeta
     detection: Detection
     status: str  # planned | not-paper | needs-review | collision | error
     note: str = ""
+    # The classifier's best-guess topic, always set for papers even when routed to
+    # _NeedsReview — lets the web UI pre-fill an editable topic for the user.
+    suggested_topic: Optional[str] = None

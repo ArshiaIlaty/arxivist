@@ -70,17 +70,24 @@ def _plan_one(pdf: Path, cfg: Config, topics: List[str], classifier: Classifier)
 
     filename = build_filename(meta, fallback_stem=pdf.stem)
     dest = unique_path(dest_dir, filename)
-    status = "planned"
+    status = "needs-review" if chosen_topic is None else "planned"
     if dest != dest_dir / filename:
-        status = "collision"
+        status = "collision" if chosen_topic is not None else status
         note += "; name existed, will suffix"
-    return PlannedMove(pdf, dest, chosen_topic, meta, detection, status=status, note=note)
+    return PlannedMove(pdf, dest, chosen_topic, meta, detection,
+                       status=status, note=note, suggested_topic=topic)
 
 
 def _empty_detection():
     from .models import Detection
 
     return Detection(is_paper=False, score=0.0, reasons=[])
+
+
+def dest_for_topic(cfg: Config, meta: PaperMeta, fallback_stem: str, topic: str) -> Path:
+    """Where a paper would be filed for an explicitly chosen topic (used by the UI override)."""
+    dest_dir = cfg.dest_root / topic
+    return unique_path(dest_dir, build_filename(meta, fallback_stem))
 
 
 def apply_moves(plans: List[PlannedMove], cfg: Config, run_id: str) -> Path:

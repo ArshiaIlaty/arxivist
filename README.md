@@ -36,31 +36,86 @@ Low-confidence topics land in `_NeedsReview/` so you can place them by hand.
 
 ## Install
 
+Requires Python 3.9+. Install into a virtual environment:
+
 ```bash
 cd ~/arxivist
-python3 -m pip install -e ".[all]"     # CLI + LLM classifier + web UI
-# or pick extras: ".[llm]" (Anthropic/Bedrock SDK), ".[web]" (web UI), or bare "." (offline CLI)
+python3 -m venv .venv
+source .venv/bin/activate            # do this in every new shell before running arxivist
+pip install -e ".[all]"              # CLI + LLM classifier + web UI
 ```
 
-Requires Python 3.9+.
+Extras: `".[all]"` (everything), `".[llm]"` (Anthropic/Bedrock SDK),
+`".[web]"` (web UI), or bare `"."` (offline CLI only).
+
+### `arxivist: command not found`?
+
+The `arxivist` command only exists once the package is installed **and** its
+`bin` directory is on your `PATH`. Two reliable fixes:
+
+- **Use a venv** (above) and `source .venv/bin/activate` in each shell — then
+  `arxivist ...` works.
+- **Or skip the script entirely** and run the module, which always works as long
+  as `pip install` succeeded for that interpreter:
+
+  ```bash
+  python3 -m arxivist serve --host 0.0.0.0 --port 8000
+  python3 -m arxivist organize ~/Downloads --dest ~/Papers
+  ```
+
+If you installed with `pip install --user`, the script lands in `~/.local/bin`,
+which may not be on your `PATH`; add it (`export PATH="$HOME/.local/bin:$PATH"`)
+or use `python3 -m arxivist`.
 
 ## Web UI
 
-Run arxivist on a server and drive it from the browser on your Mac — upload PDFs,
-watch each one get analyzed live, and download the organized result as a zip:
+Run arxivist on a server and drive it from the browser on your Mac:
 
 ```bash
-arxivist serve --host 0.0.0.0 --port 8000            # then open http://<server>:8000
+arxivist serve --host 0.0.0.0 --port 8000     # or: python3 -m arxivist serve ...
+# then open http://<server>:8000
 ```
 
-Files you upload are analyzed and filed into topic folders inside a per-session
-workspace on the server; the **Download organized .zip** button hands you an
-`organized/<Topic>/<year> - title.pdf` tree to drop into your real library. Your
-originals on the Mac are never touched. Flags: `--config`, `--workdir` (where
-session workspaces live), `--host`, `--port`.
+Flow:
+
+1. **Drop PDFs** in the browser — they upload to the server.
+2. **Analyze** — each file streams in live with its detected status, title, year,
+   and a proposed topic. Nothing is moved yet.
+3. **Review & edit** — every paper row has an **editable topic** field
+   (auto-completing from topics seen so far). Change any topic, accept the
+   suggestion, or clear a row to skip it. You can even type a topic on a row
+   detected as "not a paper" to file it anyway.
+4. **File & download** — click the button to file copies into
+   `organized/<Topic>/<year> - title.pdf` and download the whole tree as a zip to
+   drop into your real library.
+
+Your originals on the Mac are never touched — only the uploaded copies are
+organized. You can re-edit topics and file again without re-uploading. Flags:
+`--config`, `--workdir` (where session workspaces live), `--host`, `--port`.
 
 > Behind a reverse proxy at a sub-path, the UI uses relative URLs — serve it under
 > a location with a trailing slash (e.g. `/arxivist/`) and it just works.
+
+## Deployment (Docker / systemd)
+
+**Docker:**
+
+```bash
+docker build -t arxivist .
+docker run --rm -p 8000:8000 \
+  -e ANTHROPIC_API_KEY=sk-... \
+  -v "$PWD/config.yaml:/config/config.yaml:ro" \
+  arxivist
+```
+
+For Bedrock, drop the API key and pass AWS credentials instead (env vars, or
+mount `~/.aws`), plus `-e ARXIVIST_PROVIDER=bedrock -e AWS_REGION=...`. Mount a
+volume at `/data` to persist session workspaces.
+
+**systemd:** see [`deploy/arxivist.service`](deploy/arxivist.service) — it documents
+installing into `/opt/arxivist/venv`, putting secrets in
+`/etc/arxivist/arxivist.env`, and enabling the service. Then
+`journalctl -u arxivist -f` to watch logs.
 
 ## CLI usage
 
