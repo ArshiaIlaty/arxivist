@@ -20,6 +20,7 @@ from typing import Dict, List, Optional
 from fastapi import Body, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
 
+from ..classify import Classifier
 from ..config import NEEDS_REVIEW, STATE_DIR, load_config
 from ..discover import find_pdfs
 from ..models import PlannedMove
@@ -138,10 +139,11 @@ def create_app(config_path: Optional[Path] = None, workdir: Optional[Path] = Non
                         "provider": cfg.provider, "use_llm": cfg.use_llm,
                         "use_online": cfg.use_online})
             plans: List[PlannedMove] = []
+            classifier = Classifier(cfg)
             try:
                 # Analysis only — no files are moved here. The user reviews/edits
                 # topics, then POSTs /apply to file them.
-                for i, plan in enumerate(iter_plans(pdfs, cfg), start=1):
+                for i, plan in enumerate(iter_plans(pdfs, cfg, classifier), start=1):
                     plans.append(plan)
                     payload = _plan_to_dict(plan, sess.organized)
                     payload["index"] = i
@@ -156,7 +158,8 @@ def create_app(config_path: Optional[Path] = None, workdir: Optional[Path] = Non
             known = sorted(set(cfg.topics) | {p.topic for p in plans if p.topic}
                            | {p.suggested_topic for p in plans if p.suggested_topic})
             yield _sse({"type": "done", "candidates": candidates, "not_paper": not_paper,
-                        "total": total, "known_topics": known})
+                        "total": total, "known_topics": known,
+                        "classifier": classifier.status()})
 
         return StreamingResponse(gen(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

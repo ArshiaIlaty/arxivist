@@ -34,6 +34,11 @@
          margin: 18px 0 8px; display: none; }
   #bar > div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
   #summary { color: var(--muted); font-size: 13px; min-height: 20px; }
+  #banner { margin-top: 10px; padding: 10px 14px; border-radius: 8px; font-size: 13px;
+            border: 1px solid; }
+  #banner.warn { background: rgba(230,193,90,.10); border-color: rgba(230,193,90,.4);
+                 color: #f0d68a; }
+  #banner code { color: var(--fg); background: #0f131b; padding: 1px 5px; border-radius: 4px; }
   table { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 13.5px; }
   th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line);
            vertical-align: top; }
@@ -81,6 +86,7 @@
 
   <div id="bar"><div></div></div>
   <div id="summary"></div>
+  <div id="banner" hidden></div>
 
   <datalist id="topics"></datalist>
   <table id="tbl" hidden>
@@ -164,6 +170,7 @@ go.addEventListener('click', async () => {
       (d.known_topics || []).forEach(addTopicOption);
       summary.textContent = `Analyzed ${d.total} file(s): ${d.candidates} paper(s), ${d.not_paper} not papers. `
         + `Edit topics below, then file & download.`;
+      showClassifierBanner(d.classifier);
       applyBtn.disabled = d.candidates === 0;
       go.disabled = false;
     } else if (d.type === 'error') {
@@ -195,6 +202,26 @@ applyBtn.addEventListener('click', async () => {
     applyBtn.disabled = false; go.disabled = false;
   }
 });
+
+function showClassifierBanner(status) {
+  const banner = document.getElementById('banner');
+  if (!status || status.mode === 'llm') { banner.hidden = true; return; }
+  const reason = escapeHtml(status.reason || 'the LLM topic classifier did not run.');
+  let fix;
+  if (status.mode === 'keywords') {
+    fix = 'Topic classification is running in keyword-only mode. Enable the LLM '
+        + 'for fine-grained topics.';
+  } else {
+    fix = 'Papers were filed to <code>_Unsorted</code>/<code>_NeedsReview</code> because the '
+        + 'LLM topic classifier did not run. Set <code>ANTHROPIC_API_KEY</code> or configure '
+        + 'Bedrock (<code>provider: bedrock</code>, <code>bedrock_model</code>, '
+        + '<code>AWS_REGION</code>) and reinstall with <code>.[llm]</code>. '
+        + 'Run <code>arxivist doctor</code> on the server to test.';
+  }
+  banner.className = 'warn';
+  banner.hidden = false;
+  banner.innerHTML = `<strong>Heads up:</strong> ${reason}<br>${fix} You can still type topics by hand below.`;
+}
 
 function addTopicOption(t) {
   if (!t || knownTopics.has(t)) return;

@@ -16,15 +16,18 @@ from .models import PaperMeta, PlannedMove
 from .naming import build_filename, unique_path
 
 
-def iter_plans(pdfs: Iterable[Path], cfg: Config) -> Iterator[PlannedMove]:
+def iter_plans(pdfs: Iterable[Path], cfg: Config,
+               classifier: "Optional[Classifier]" = None) -> Iterator[PlannedMove]:
     """Yield one PlannedMove per PDF as it is analyzed (read-only).
 
     Topics discovered during this run are added to the working set so a second
     paper on the same new subject files next to the first instead of spawning a
-    duplicate folder. Used both by the CLI and by the web UI's live stream.
+    duplicate folder. Pass a Classifier to inspect its status afterward (the web
+    UI does this to report whether the LLM actually ran).
     """
     topics = list(existing_topics(cfg.dest_root))
-    classifier = Classifier(cfg)
+    if classifier is None:
+        classifier = Classifier(cfg)
     for pdf in pdfs:
         yield _plan_one(pdf, cfg, topics, classifier)
 

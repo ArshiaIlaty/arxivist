@@ -122,6 +122,47 @@ def serve(
     uvicorn.run(app_, host=host, port=port)
 
 
+@app.command()
+def doctor(
+    config: Optional[Path] = typer.Option(None, "--config", "-c", help="Path to config.yaml."),
+    dest: Optional[Path] = typer.Option(
+        None, "--dest", "-d", help="Library root whose config to load. Defaults to CWD."
+    ),
+):
+    """Check whether topic classification (the LLM) actually works on this machine.
+
+    Renaming needs no key (arXiv/Crossref lookups are free), but filing papers into
+    topic folders needs the LLM. This runs one real classification call and reports
+    exactly why it does or doesn't work.
+    """
+    from rich.markup import escape
+
+    from .llm import diagnose
+
+    cfg = load_config((dest or Path.cwd()).resolve(), config)
+    console.print(
+        f"provider: [bold]{cfg.provider}[/bold]   "
+        f"model: [bold]{cfg.bedrock_model if cfg.provider == 'bedrock' else cfg.model}[/bold]   "
+        f"use_llm: [bold]{cfg.use_llm}[/bold]   use_online: [bold]{cfg.use_online}[/bold]"
+    )
+    report = diagnose(cfg)
+    if report["ok"]:
+        console.print(f"[green]✓ LLM classification works.[/green] {escape(report['detail'])}")
+    else:
+        console.print(f"[red]✗ LLM classification unavailable.[/red] {escape(report['detail'])}")
+        for err in report.get("errors", []):
+            console.print(f"  [dim]{escape(err)}[/dim]")
+        console.print(
+            "\n[yellow]Papers will fall back to [bold]_Unsorted[/bold]/[bold]_NeedsReview[/bold] "
+            "until this is fixed.[/yellow]\n"
+            "Fix one of:\n"
+            r"  • Anthropic API: set [bold]ANTHROPIC_API_KEY[/bold] and install [bold]'.\[llm]'[/bold]"
+            "\n  • Bedrock: set [bold]provider: bedrock[/bold], [bold]bedrock_model[/bold], and "
+            "AWS creds/[bold]AWS_REGION[/bold]"
+        )
+        raise typer.Exit(code=1)
+
+
 @app.command("undo")
 def undo_cmd(
     dest: Path = typer.Option(..., "--dest", "-d", exists=True, help="Library root used previously."),

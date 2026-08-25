@@ -168,6 +168,23 @@ one with `provider:` in config (or `ARXIVIST_PROVIDER`):
 No credentials? Run with `--no-llm` (or `use_llm: false`) — arxivist still renames
 and files using online lookup + your keyword topics.
 
+### Everything landed in `_Unsorted`? Run `arxivist doctor`
+
+Renaming and topic-filing are independent: renaming uses free arXiv/Crossref
+lookups (no key), but **filing into topic folders needs the LLM**. If papers get
+correct names yet all pile into `_Unsorted`/`_NeedsReview`, the classifier never
+ran — usually because the machine has no credentials or the SDK isn't installed
+(a common gap when the app runs on a server but you tested on your Mac).
+
+```
+arxivist doctor          # runs one real classification call and prints why it does/doesn't work
+```
+
+It reports the active provider/model and either confirms the LLM works or shows
+the exact error (missing SDK, no credentials, wrong Bedrock model/region) plus
+how to fix it. The web UI shows the same warning banner after analysis when the
+classifier fell back.
+
 ## "Google cloud" folders
 
 Google Drive / Cloud Storage synced to your Mac appears as a normal local path

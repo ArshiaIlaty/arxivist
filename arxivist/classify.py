@@ -69,15 +69,33 @@ class Classifier:
         self.cfg = cfg
         self._client = None
         self._client_tried = False
+        # Diagnostics surfaced to the user when classification falls back.
+        self.llm_calls = 0          # successful LLM classifications
+        self.fallback_reason = None  # why the LLM path was unavailable, if it was
 
     def _get_client(self):
         if not self._client_tried:
             self._client_tried = True
             try:
                 self._client = build_client(self.cfg)
-            except Exception:  # noqa: BLE001 - SDK missing or no creds
+            except ImportError:
                 self._client = None
+                self.fallback_reason = ('Anthropic SDK not installed — run '
+                                        'pip install -e ".[llm]" (or ".[all]").')
+            except Exception as exc:  # noqa: BLE001 - no creds / bad config
+                self._client = None
+                self.fallback_reason = f"{type(exc).__name__}: {exc}"
         return self._client
+
+    def status(self) -> dict:
+        """How classification actually behaved this run (for the UI/logs)."""
+        if not self.cfg.use_llm:
+            return {"mode": "keywords", "reason": "LLM disabled (use_llm: false)."}
+        if self.llm_calls > 0:
+            return {"mode": "llm", "reason": None}
+        reason = self.fallback_reason or (
+            "LLM produced no topic (no credentials, or the model/region is wrong).")
+        return {"mode": "fallback", "reason": reason}
 
     def classify(self, meta: PaperMeta, existing: List[str]) -> Tuple[str, bool, float]:
         """Return (topic, is_new, confidence)."""
@@ -110,11 +128,15 @@ class Classifier:
             "Pick the single best topic. Reuse an existing topic unless none fits."
         )
 
+        errbox: list = []
         data = force_tool(
             client, resolve_model(self.cfg), _SYSTEM, prompt,
             tool_name="select_topic", tool_description=_TOOL_DESC, schema=_SCHEMA,
+            errbox=errbox,
         )
         if not data:
+            if self.fallback_reason is None and errbox:
+                self.fallback_reason = errbox[-1]
             return None
         topic = str(data.get("topic", "")).strip()
         if not topic:
@@ -123,6 +145,7 @@ class Classifier:
             confidence = float(data.get("confidence", 0.0))
         except (TypeError, ValueError):
             confidence = 0.0
+        self.llm_calls += 1
         # Trust the on-disk/working set over the model's self-report for is_new.
         return topic, topic not in existing, confidence
 
